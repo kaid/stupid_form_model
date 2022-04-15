@@ -16,18 +16,20 @@ interface Validate<V = unknown> {
     (value: Nullable<V>): Nullable<string | false | 0>;
 }
 
-interface FieldModelOptions {
+interface FieldModelOptions<T> {
+    initialValue?: T;
     required?: boolean;
     validateAllRules?: boolean;
 }
 
 export class FieldModel<T = DefaultScalars> {
-    private options: FieldModelOptions = {};
+    private readonly initialValue: T;
+    private options: FieldModelOptions<T> = {};
 
     static from<T = DefaultScalars>(
         state: FieldState<T>,
         rules: Array<Validate<T>> = [],
-        options: FieldModelOptions = {},
+        options: FieldModelOptions<T> = {},
     ) {
         return new FieldModel(state, rules, options);
     }
@@ -35,9 +37,10 @@ export class FieldModel<T = DefaultScalars> {
     constructor(
         public readonly state: FieldState<T>,
         public readonly rules: Array<Validate<T>> = [],
-        options: FieldModelOptions = {},
+        options: FieldModelOptions<T> = {},
     ) {
         this.options = options;
+        this.initialValue = clone(options.initialValue === undefined ? null : options.initialValue);
     }
 
     public validate(): Array<string> {
@@ -82,6 +85,11 @@ export class FieldModel<T = DefaultScalars> {
         }
 
         return result;
+    }
+
+    public reset(): void {
+        this.value = clone(this.initialValue);
+        this.state.touched = false;
     }
 }
 
@@ -189,6 +197,12 @@ export class FormModel<M> {
             (result, field, prop) => ({ ...result, [prop]: field.validate() }),
             {} as ValidationCollection<M>,
         );
+    }
+
+    public reset(): void {
+        for (const field of Object.values(this.fields)) {
+            (field as FieldModel<unknown>).reset();
+        }
     }
 }
 
