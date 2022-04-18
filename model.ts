@@ -3,8 +3,8 @@ import { isEmpty, isNaN, reduce, find, includes, clone, omit } from 'lodash-es';
 type Nullable<V> = V | null | undefined;
 type DefaultScalars = Nullable<string | number | bigint | Date | unknown[]>;
 
-interface FieldState<V = DefaultScalars> {
-    field: string;
+interface ScalarModelState<V = DefaultScalars> {
+    prop: string;
     label?: string;
     touched?: boolean;
     value: Nullable<V>;
@@ -16,7 +16,7 @@ interface Validate<V = unknown> {
     (value: Nullable<V>): Nullable<string | false | 0>;
 }
 
-interface FieldModelOptions<T> {
+interface ScalarModelOptions<T> {
     initialValue?: T;
     required?: boolean;
     validateAllRules?: boolean;
@@ -33,20 +33,20 @@ interface ValueModel<T = unknown, R = unknown> {
 
 export class ScalarModel<T = DefaultScalars> implements ValueModel<T, Array<string>> {
     private readonly initialValue: T;
-    private options: FieldModelOptions<T> = {};
+    private options: ScalarModelOptions<T> = {};
 
     static from<T = DefaultScalars>(
-        state: FieldState<T>,
+        state: ScalarModelState<T>,
         rules: Array<Validate<T>> = [],
-        options: FieldModelOptions<T> = {},
+        options: ScalarModelOptions<T> = {},
     ) {
         return new ScalarModel(state, rules, options);
     }
 
     constructor(
-        private readonly state: FieldState<T>,
+        private readonly state: ScalarModelState<T>,
         public readonly rules: Array<Validate<T>> = [],
-        options: FieldModelOptions<T> = {},
+        options: ScalarModelOptions<T> = {},
     ) {
         this.options = options;
         this.initialValue = clone(options.initialValue === undefined ? null : options.initialValue);
@@ -105,7 +105,7 @@ export class ScalarModel<T = DefaultScalars> implements ValueModel<T, Array<stri
     }
 }
 
-type FieldCollection<M> = {
+type MemberCollection<M> = {
     [P in (keyof M)]: ValueModel<
         M[P],
         M[P] extends Record<P, unknown> ? ValidationCollection<M[P]> : Array<string>
@@ -116,7 +116,7 @@ type ValidationCollection<M> = {
     [P in (keyof M)]: string[];
 }
 
-interface ScalarFieldDef<M, P extends keyof M> {
+interface ScalarMemberDef<M, P extends keyof M> {
     label?: string;
     required?: boolean;
     initialValue?: M[P];
@@ -124,92 +124,92 @@ interface ScalarFieldDef<M, P extends keyof M> {
     rules?: Array<Validate<M[P]>>;
 }
 
-type FieldsDef<M> = {
-    [P in (keyof M)]: ScalarFieldDef<M, P> | { __complex: boolean } & ScalarModel<M[P]>;
+type MembersDef<M> = {
+    [P in (keyof M)]: ScalarMemberDef<M, P> | { __complex: boolean } & ScalarModel<M[P]>;
 }
 
-interface FormModelOptions {
+interface ComplexModelOptions {
     validateAllRules?: boolean;
 }
 
 export class ComplexModel<M> implements ValueModel<M, ValidationCollection<M>>{
-    public readonly fields: FieldCollection<M>;
+    public readonly members: MemberCollection<M>;
 
     static from<M>(
-        fields: FieldsDef<Partial<M>>,
-        options?: FormModelOptions,
+        members: MembersDef<Partial<M>>,
+        options?: ComplexModelOptions,
     ) {
-        return new ComplexModel<M>(fields, options);
+        return new ComplexModel<M>(members, options);
     }
 
     constructor(
-        fields: FieldsDef<Partial<M>>,
-        private options: FormModelOptions = { validateAllRules: false },
+        members: MembersDef<Partial<M>>,
+        private options: ComplexModelOptions = { validateAllRules: false },
     ) {
-        this.fields = reduce(
-            fields,
-            (result, def, field) => {
+        this.members = reduce(
+            members,
+            (result, def, prop) => {
                 const isScalar = !(def as { __complex: boolean })['__complex'];
 
                 if (!isScalar) {
                     return {
                         ...result,
-                        [field]: ComplexModel.from(omit(def, '__complex') as FieldsDef<unknown>, options),
+                        [prop]: ComplexModel.from(omit(def, '__complex') as MembersDef<unknown>, options),
                     };
                 }
 
-                const { placeholder, label, required, initialValue = null, rules = [] } = def as ScalarFieldDef<M, keyof M>;
+                const { placeholder, label, required, initialValue = null, rules = [] } = def as ScalarMemberDef<M, keyof M>;
 
                 return {
                     ...result,
-                    [field]: ScalarModel.from(
-                        { placeholder, field, label, rejections: [], touched: false, value: clone(initialValue), },
+                    [prop]: ScalarModel.from(
+                        { placeholder, prop, label, rejections: [], touched: false, value: clone(initialValue), },
                         required ? rules.concat(nonNullable) : rules,
                         { required: Boolean(required), validateAllRules: options.validateAllRules },
                     ),
                 };
             },
-            {} as FieldCollection<M>,
+            {} as MemberCollection<M>,
         );
     }
 
     public get value(): M {
         return reduce(
-            this.fields,
-            (result, field, prop) => ({ ...result, [prop]: field.value }),
+            this.members,
+            (result, member, prop) => ({ ...result, [prop]: member.value }),
             {} as M,
         );
     }
 
     public set value(value: M) {
-        for (const key in this.fields) {
-            const { [key]: field } = this.fields;
+        for (const key in this.members) {
+            const { [key]: member } = this.members;
 
-            field.value = value[key];
+            member.value = value[key];
         }
     }
 
     public get valid(): boolean {
         return !find(
-            Object.keys(this.fields),
+            Object.keys(this.members),
             (key: keyof M) => {
-                const { [key]: field } = this.fields;
-                return !field.valid;
+                const { [key]: member } = this.members;
+                return !member.valid;
             },
         );
     }
 
     public validate(): ValidationCollection<M> {
         return reduce(
-            this.fields,
-            (result, field, prop) => ({ ...result, [prop]: field.validate() }),
+            this.members,
+            (result, member, prop) => ({ ...result, [prop]: member.validate() }),
             {} as ValidationCollection<M>,
         );
     }
 
     public reset(): void {
-        for (const field of Object.values<ValueModel>(this.fields)) {
-            field.reset();
+        for (const member of Object.values<ValueModel>(this.members)) {
+            member.reset();
         }
     }
 }
