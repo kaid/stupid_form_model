@@ -22,7 +22,16 @@ interface FieldModelOptions<T> {
     validateAllRules?: boolean;
 }
 
-export class FieldModel<T = DefaultScalars> {
+interface ValueModel<T = unknown, R = unknown> {
+    reset(): void;
+    validate(): R;
+
+    set value(v: T);
+    get value(): Nullable<T>;
+    get valid(): boolean;
+}
+
+export class ScalarModel<T = DefaultScalars> implements ValueModel<T, Array<string>> {
     private readonly initialValue: T;
     private options: FieldModelOptions<T> = {};
 
@@ -31,11 +40,11 @@ export class FieldModel<T = DefaultScalars> {
         rules: Array<Validate<T>> = [],
         options: FieldModelOptions<T> = {},
     ) {
-        return new FieldModel(state, rules, options);
+        return new ScalarModel(state, rules, options);
     }
 
     constructor(
-        public readonly state: FieldState<T>,
+        private readonly state: FieldState<T>,
         public readonly rules: Array<Validate<T>> = [],
         options: FieldModelOptions<T> = {},
     ) {
@@ -65,6 +74,11 @@ export class FieldModel<T = DefaultScalars> {
         }
     }
 
+    public get valid(): boolean {
+        const { touched, rejections } = this.state;
+        return !touched || Boolean(rejections.length);
+    }
+
     private iterateRules(): Array<string> {
         const { value } = this.state;
 
@@ -80,11 +94,9 @@ export class FieldModel<T = DefaultScalars> {
             result.push(rejection);
 
             if (!this.options.validateAllRules) {
-                break;
+                return result;
             }
         }
-
-        return result;
     }
 
     public reset(): void {
@@ -95,8 +107,8 @@ export class FieldModel<T = DefaultScalars> {
 
 type FieldCollection<M> = {
     [P in (keyof M)]: M[P] extends Record<P, unknown>
-        ? M[P] extends Array<unknown> ? FieldModel<M[P]> : FormModel<M[P]>
-        : FieldModel<M[P]>;
+        ? M[P] extends Array<unknown> ? ScalarModel<M[P]> : ComplexModel<M[P]>
+        : ScalarModel<M[P]>;
 }
 
 type ValidationCollection<M> = {
@@ -112,21 +124,21 @@ interface ScalarFieldDef<M, P extends keyof M> {
 }
 
 type FieldsDef<M> = {
-    [P in (keyof M)]: ScalarFieldDef<M, P> | { __complex: boolean } & FieldModel<M[P]>;
+    [P in (keyof M)]: ScalarFieldDef<M, P> | { __complex: boolean } & ScalarModel<M[P]>;
 }
 
 interface FormModelOptions {
     validateAllRules?: boolean;
 }
 
-export class FormModel<M> {
+export class ComplexModel<M> implements ValueModel<M, ValidationCollection<M>>{
     public readonly fields: FieldCollection<M>;
 
     static from<M>(
         fields: FieldsDef<Partial<M>>,
         options?: FormModelOptions,
     ) {
-        return new FormModel<M>(fields, options);
+        return new ComplexModel<M>(fields, options);
     }
 
     constructor(
@@ -141,7 +153,7 @@ export class FormModel<M> {
                 if (!isScalar) {
                     return {
                         ...result,
-                        [field]: FormModel.from(omit(def, '__complex') as FieldsDef<unknown>, options),
+                        [field]: ComplexModel.from(omit(def, '__complex') as FieldsDef<unknown>, options),
                     };
                 }
 
@@ -149,7 +161,7 @@ export class FormModel<M> {
 
                 return {
                     ...result,
-                    [field]: FieldModel.from(
+                    [field]: ScalarModel.from(
                         { placeholder, field, label, rejections: [], touched: false, value: clone(initialValue), },
                         required ? rules.concat(nonNullable) : rules,
                         { required: Boolean(required), validateAllRules: options.validateAllRules },
@@ -181,12 +193,7 @@ export class FormModel<M> {
             Object.keys(this.fields),
             (key: keyof M) => {
                 const { [key]: field } = this.fields;
-
-                if (field instanceof FormModel) {
-                    return !field.valid;
-                }
-
-                return !field.state.touched || field.state.rejections.length;
+                return !field.valid;
             },
         );
     }
@@ -201,7 +208,7 @@ export class FormModel<M> {
 
     public reset(): void {
         for (const field of Object.values(this.fields)) {
-            (field as FieldModel<unknown>).reset();
+            (field as ValueModel).reset();
         }
     }
 }
