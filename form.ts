@@ -106,9 +106,10 @@ export class ScalarModel<T = DefaultScalars> implements ValueModel<T, Array<stri
 }
 
 type FieldCollection<M> = {
-    [P in (keyof M)]: M[P] extends Record<P, unknown>
-        ? M[P] extends Array<unknown> ? ScalarModel<M[P]> : ComplexModel<M[P]>
-        : ScalarModel<M[P]>;
+    [P in (keyof M)]: ValueModel<
+        M[P],
+        M[P] extends Record<P, unknown> ? ValidationCollection<M[P]> : Array<string>
+    >
 }
 
 type ValidationCollection<M> = {
@@ -207,8 +208,8 @@ export class ComplexModel<M> implements ValueModel<M, ValidationCollection<M>>{
     }
 
     public reset(): void {
-        for (const field of Object.values(this.fields)) {
-            (field as ValueModel).reset();
+        for (const field of Object.values<ValueModel>(this.fields)) {
+            field.reset();
         }
     }
 }
